@@ -10,18 +10,13 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// === DATABASE JSON (No Native Module) ===
+// === DATABASE JSON ===
 const DB_FILE = 'elzzmsg_db.json';
 
 function initDB() {
   if (!fs.existsSync(DB_FILE)) {
     fs.writeFileSync(DB_FILE, JSON.stringify({
-      users: {},
-      sessions: {},
-      contacts: [],
-      messages: [],
-      banned: [], // { username, reason, bannedBy }
-      statuses: []
+      users: {}, sessions: {}, contacts: [], messages: [], banned: [], statuses: []
     }, null, 2));
   }
 }
@@ -50,15 +45,14 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static(uploadDir));
 
-// Ganti 'elzzellz' di bawah jika mau ganti default admin
-const ADMIN_USERNAME = process.env.ADMIN_USER || 'fxosss'; 
+const ADMIN_USERNAME = process.env.ADMIN_USER || 'fxosss';
 let onlineUsers = {}; 
 
 // === MIDDLEWARE ===
 app.use((req, res, next) => {
   const ua = req.headers['user-agent'] || '';
   if (!/Android|iPhone|iPad|iPod/i.test(ua) && req.path === '/') {
-    return res.send('<html><body style="background:#111b21;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;text-align:center"><div><h1>📵 Mobile Only</h1><p>ElzzMsg hanya untuk Android.</p></div></body></html>');
+    return res.send('<html><body style="background:#111b21;color:#fff;display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;text-align:center"><div><h1>📵 Mobile Only</h1></div></body></html>');
   }
   next();
 });
@@ -78,14 +72,10 @@ app.post('/api/check-session', (req, res) => {
   const db = getDB();
   const session = db.sessions[sessionId];
   if (!session) return res.json({ valid: false });
-  
   const user = db.users[session.userId];
   if (!user) return res.json({ valid: false });
-
-  // Cek Ban Status
   const banData = db.banned.find(b => b.username === user.username);
   if (banData) return res.json({ valid: false, banned: true, banData });
-
   res.json({ valid: true, user: { ...user, password: undefined } });
 });
 
@@ -97,14 +87,12 @@ io.on('connection', (socket) => {
     const db = getDB();
     const { username, displayName, bio, avatar, sessionId } = data;
 
-    // 1. Cek Session
     if (sessionId && db.sessions[sessionId]) {
       const userId = db.sessions[sessionId].userId;
       const user = db.users[userId];
       if (user) {
         const banData = db.banned.find(b => b.username === user.username);
         if (banData) return socket.emit('banned', { bannedBy: banData.bannedBy, reason: banData.reason });
-
         onlineUsers[socket.id] = { ...user, socketId: socket.id, online: true };
         socket.emit('registered', { success: true, user, isAdmin: user.isAdmin, sessionId });
         sendUserContacts(socket, userId);
@@ -114,7 +102,6 @@ io.on('connection', (socket) => {
       }
     }
 
-    // 2. Registrasi Baru
     if (!username || username.length < 3) return socket.emit('error', { message: 'Username minimal 3 karakter' });
     const userExists = Object.values(db.users).find(u => u.username === username);
     if (userExists) return socket.emit('error', { message: 'Username sudah digunakan' });
@@ -122,7 +109,6 @@ io.on('connection', (socket) => {
     const userId = uuidv4();
     const isAdmin = username === ADMIN_USERNAME ? 1 : 0;
     const newSessionId = uuidv4();
-
     const newUser = { id: userId, username, displayName: displayName || username, bio: bio || 'Hey! I using ElzzMsg', avatar: avatar || null, isAdmin };
 
     db.users[userId] = newUser;
@@ -131,7 +117,6 @@ io.on('connection', (socket) => {
 
     onlineUsers[socket.id] = { ...newUser, socketId: socket.id, online: true };
     socket.emit('registered', { success: true, user: newUser, isAdmin, sessionId: newSessionId });
-
     if (isAdmin) socket.emit('bot_message', { from: 'Configurator Bot', text: `🤖 Welcome Admin!\n\nCommands:\n/ban (username) (alasan)\n/unban (username)` });
     broadcastOnlineUsers();
   });
@@ -141,18 +126,12 @@ io.on('connection', (socket) => {
     const db = getDB();
     const user = db.users[userId];
     if (!user) return socket.emit('error', { message: 'Invalid user' });
-
     const targetEntry = Object.entries(db.users).find(([id, u]) => u.username === targetUsername);
     if (!targetEntry) return socket.emit('error', { message: 'Username tidak ditemukan' });
-    
     const [targetId, targetUser] = targetEntry;
     if (targetUser.username === user.username) return socket.emit('error', { message: 'Gak bisa add diri sendiri' });
-
     const exists = db.contacts.find(c => c.userId === userId && c.contactUsername === targetUsername);
-    if (!exists) {
-      db.contacts.push({ userId, contactUsername: targetUsername });
-      saveDB(db);
-    }
+    if (!exists) { db.contacts.push({ userId, contactUsername: targetUsername }); saveDB(db); }
     sendUserContacts(socket, userId);
     socket.emit('contact_added', { success: true });
   });
@@ -162,11 +141,9 @@ io.on('connection', (socket) => {
   socket.on('send_message', (data) => {
     const db = getDB();
     const { from, to, text, type, mediaUrl, mediaType } = data;
-    
     const fromUser = Object.values(db.users).find(u => u.username === from);
     if (!fromUser) return;
 
-    // Admin Commands
     if (fromUser.isAdmin && text && text.startsWith('/')) {
       const args = text.split(' ');
       const cmd = args[0];
@@ -177,7 +154,6 @@ io.on('connection', (socket) => {
         db.banned = db.banned.filter(b => b.username !== targetUser);
         db.banned.push({ username: targetUser, reason: reason, bannedBy: fromUser.username });
         saveDB(db);
-
         const targetSocket = Object.values(onlineUsers).find(u => u.username === targetUser);
         if (targetSocket) io.to(targetSocket.socketId).emit('banned', { bannedBy: fromUser.username, reason: reason });
         socket.emit('command_result', { message: `✅ User ${targetUser} berhasil di-ban.\nAlasan: ${reason}` });
@@ -191,7 +167,7 @@ io.on('connection', (socket) => {
           const targetSocket = Object.values(onlineUsers).find(u => u.username === targetUser);
           if (targetSocket) io.to(targetSocket.socketId).emit('unbanned');
           socket.emit('command_result', { message: `✅ User ${targetUser} berhasil di-unban.` });
-        } else socket.emit('command_result', { message: `User ${targetUser} tidak di-ban.` });
+        } else { socket.emit('command_result', { message: `User ${targetUser} tidak di-ban.` }); }
         return;
       }
     }
@@ -199,7 +175,6 @@ io.on('connection', (socket) => {
     const msg = { id: uuidv4(), from, to, text, type: type || 'text', mediaUrl, mediaType, time: new Date().toISOString(), status: 'sent' };
     db.messages.push(msg);
     saveDB(db);
-
     const recipientSocket = Object.values(onlineUsers).find(u => u.username === to);
     if (recipientSocket) io.to(recipientSocket.socketId).emit('receive_message', msg);
     socket.emit('message_sent', msg);
@@ -228,7 +203,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Status System
   socket.on('post_status', (data) => {
     const db = getDB();
     const { userId, url, type, caption } = data;
@@ -241,26 +215,47 @@ io.on('connection', (socket) => {
   });
 
   socket.on('get_statuses', () => sendStatuses(socket));
-  
   socket.on('view_status', (data) => {
     const db = getDB();
-    const { statusId, viewerUsername } = data;
-    const status = db.statuses.find(s => s.id === statusId);
-    if (status && !status.viewers.includes(viewerUsername)) {
-      status.viewers.push(viewerUsername);
-      saveDB(db);
-    }
+    const status = db.statuses.find(s => s.id === data.statusId);
+    if (status && !status.viewers.includes(data.viewerUsername)) { status.viewers.push(data.viewerUsername); saveDB(db); }
   });
 
-  socket.on('disconnect', () => {
-    delete onlineUsers[socket.id];
-    broadcastOnlineUsers();
-  });
+  socket.on('disconnect', () => { delete onlineUsers[socket.id]; broadcastOnlineUsers(); });
 
   function sendUserContacts(socket, userId) {
     const db = getDB();
     const userContacts = db.contacts.filter(c => c.userId === userId).map(c => {
       const contactUser = Object.values(db.users).find(u => u.username === c.contactUsername);
+      return contactUser ? { ...contactUser, password: undefined } : null;
+    }).filter(Boolean);
+    socket.emit('contacts', userContacts);
+  }
+
+  function sendStatuses(socket) {
+    const db = getDB();
+    const now = new Date();
+    const validStatuses = db.statuses.filter(s => (now - new Date(s.time)) < 86400000);
+    socket.emit('statuses', validStatuses);
+  }
+
+  function broadcastOnlineUsers() { io.emit('online_users', Object.values(onlineUsers).map(u => u.username)); }
+});
+
+// === GCC: AUTO CLEANUP ===
+function runGCC() {
+  const db = getDB();
+  const now = new Date();
+  const lifespan = 86400000; 
+  db.statuses = db.statuses.filter(s => (now - new Date(s.time)) < lifespan);
+  db.messages = db.messages.filter(m => (now - new Date(m.time)) < lifespan);
+  saveDB(db);
+}
+runGCC();
+setInterval(runGCC, 3600000);
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => console.log('🦁 ElzzMsg running on port ' + PORT));alues(db.users).find(u => u.username === c.contactUsername);
       return contactUser ? { ...contactUser, password: undefined } : null;
     }).filter(Boolean);
     socket.emit('contacts', userContacts);

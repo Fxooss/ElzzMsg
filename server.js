@@ -55,7 +55,7 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static(uploadDir));
 
-const ADMIN_USERNAME = 'elzzellz';
+const ADMIN_USERNAME = 'fxosss';
 let onlineUsers = {}; // Socket ID -> User Data
 
 // === MIDDLEWARE: Android Only ===

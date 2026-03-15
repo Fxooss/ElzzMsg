@@ -51,7 +51,7 @@ app.use(express.static('public'));
 app.use('/uploads', express.static(uploadDir));
 
 // Ganti 'elzzellz' di bawah jika mau ganti default admin
-const ADMIN_USERNAME = process.env.ADMIN_USER || 'elzzellz'; 
+const ADMIN_USERNAME = process.env.ADMIN_USER || 'fxosss'; 
 let onlineUsers = {}; 
 
 // === MIDDLEWARE ===

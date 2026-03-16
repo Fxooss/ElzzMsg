@@ -33,13 +33,19 @@ app.get('/', (req, res) => res.sendFile(__dirname + '/public/index.html'));
 app.post('/upload', upload.single('file'), (req, res) => res.json({ url: '/uploads/' + req.file.filename, type: req.file.mimetype }));
 app.post('/upload-voice', upload.single('voice'), (req, res) => res.json({ url: '/uploads/' + req.file.filename }));
 app.post('/api/check-session', (req, res) => {
-    const s = getDB().sessions[req.body.sessionId];
-    if (!s) return res.json({ valid: false });
-    const u = getDB().users[s.userId];
-    if (!u) return res.json({ valid: false });
-    const b = getDB().banned.find(x => x.username === u.username);
-    if (b) return res.json({ valid: false, banned: true, banData: b });
-    res.json({ valid: true, user: { ...u, password: undefined } });
+    const db = getDB();
+    const session = db.sessions[req.body.sessionId];
+    // FIX: Kalau session gak ada, langsung balikin false. Jangan lanjut cek user.
+    if (!session) return res.json({ valid: false }); 
+    
+    const user = db.users[session.userId];
+    if (!user) return res.json({ valid: false });
+
+    // FIX: Cek ban HANYA kalau user ditemukan
+    const banData = db.banned.find(b => b.username === user.username);
+    if (banData) return res.json({ valid: false, banned: true, banData: { bannedBy: banData.bannedBy, reason: banData.reason } });
+    
+    res.json({ valid: true, user: { ...user, password: undefined } });
 });
 
 // === SOCKET ===
@@ -48,21 +54,40 @@ io.on('connection', socket => {
 
     socket.on('register', d => {
         const db = getDB();
+        
+        // 1. CEK SESSION LAMA
         if (d.sessionId && db.sessions[d.sessionId]) {
-            const u = db.users[db.sessions[d.sessionId].userId];
-            if (u) {
-                const b = db.banned.find(x => x.username === u.username);
-                if (b) return socket.emit('banned', { bannedBy: b.bannedBy, reason: b.reason });
-                onlineUsers[socket.id] = { ...u, socketId: socket.id, online: true };
-                return socket.emit('registered', { success: true, user: u, isAdmin: u.isAdmin, sessionId: d.sessionId }), sendContacts(socket, u.id), sendStatus(socket);
+            const userId = db.sessions[d.sessionId].userId;
+            const user = db.users[userId];
+            
+            if (user) {
+                // FIX: Cek ban HANYA kalau user ada
+                const banData = db.banned.find(b => b.username === user.username);
+                if (banData) {
+                    return socket.emit('banned', { bannedBy: banData.bannedBy, reason: banData.reason });
+                }
+
+                onlineUsers[socket.id] = { ...user, socketId: socket.id, online: true };
+                socket.emit('registered', { success: true, user, isAdmin: user.isAdmin, sessionId: d.sessionId });
+                sendContacts(socket, user.id);
+                sendStatus(socket);
+                return; // STOP di sini kalau udah login
             }
         }
-        if (!d.username || d.username.length < 3) return socket.emit('error', { message: 'Min 3 char' });
-        if (Object.values(db.users).find(u => u.username === d.username)) return socket.emit('error', { message: 'Taken' });
+
+        // 2. REGISTRASI BARU
+        if (!d.username || d.username.length < 3) return socket.emit('error', { message: 'Username minimal 3 karakter' });
+        if (Object.values(db.users).find(u => u.username === d.username)) return socket.emit('error', { message: 'Username sudah digunakan' });
         
-        const id = uuidv4(), sid = uuidv4(), isAdmin = d.username === ADMIN_USER ? 1 : 0;
-        const user = { id, username: d.username, displayName: d.displayName || d.username, bio: 'Hey!', avatar: d.avatar, isAdmin };
-        db.users[id] = user; db.sessions[sid] = { userId: id }; saveDB(db);
+        const id = uuidv4();
+        const sid = uuidv4();
+        const isAdmin = d.username === ADMIN_USER ? 1 : 0;
+        const user = { id, username: d.username, displayName: d.displayName || d.username, bio: 'Hey! I using ElzzMsg', avatar: d.avatar, isAdmin };
+        
+        db.users[id] = user;
+        db.sessions[sid] = { userId: id };
+        saveDB(db);
+
         onlineUsers[socket.id] = { ...user, socketId: socket.id, online: true };
         socket.emit('registered', { success: true, user, isAdmin, sessionId: sid });
         if (isAdmin) socket.emit('bot_message', { text: '🤖 Admin Mode: /ban (user) (reason) | /unban (user)' });
@@ -71,7 +96,7 @@ io.on('connection', socket => {
     socket.on('add_contact', d => {
         const db = getDB(); const u = db.users[d.userId]; if(!u) return;
         const t = Object.values(db.users).find(x => x.username === d.targetUsername);
-        if (!t) return socket.emit('error', { message: 'Not found' });
+        if (!t) return socket.emit('error', { message: 'Username tidak ditemukan' });
         if (!db.contacts.find(c => c.userId === d.userId && c.contactUsername === d.targetUsername)) db.contacts.push({ userId: d.userId, contactUsername: d.targetUsername }), saveDB(db);
         sendContacts(socket, d.userId); socket.emit('contact_added', { ok: true });
     });
@@ -82,21 +107,25 @@ io.on('connection', socket => {
         if (u.isAdmin && d.text && d.text.startsWith('/')) {
             const [cmd, arg, ...r] = d.text.split(' ');
             if (cmd === '/ban' && arg) {
+                const reason = r.join(' ') || 'No reason';
+                // Remove existing ban first
                 db.banned = db.banned.filter(x => x.username !== arg);
-                db.banned.push({ username: arg, reason: r.join(' ') || 'No reason', bannedBy: u.username }); saveDB(db);
+                db.banned.push({ username: arg, reason: reason, bannedBy: u.username }); 
+                saveDB(db);
                 const t = Object.values(onlineUsers).find(x => x.username === arg);
-                if (t) io.to(t.socketId).emit('banned', { bannedBy: u.username, reason: r.join(' ') });
-                return socket.emit('command_result', { message: `Banned ${arg}` });
+                if (t) io.to(t.socketId).emit('banned', { bannedBy: u.username, reason: reason });
+                return socket.emit('command_result', { message: `✅ User ${arg} berhasil di-ban.` });
             }
             if (cmd === '/unban' && arg) {
-                db.banned = db.banned.filter(x => x.username !== arg); saveDB(db);
-                const t = Object.values(onlineUsers).find(x => x.username === arg);
-                if (t) io.to(t.socketId).emit('unbanned');
-                return socket.emit('command_result', { message: `Unbanned ${arg}` });
+                const len = db.banned.length;
+                db.banned = db.banned.filter(x => x.username !== arg); 
+                if(db.banned.length < len) { saveDB(db); socket.emit('command_result', { message: `✅ User ${arg} di-unban.` }); }
+                else { socket.emit('command_result', { message: `User ${arg} tidak di-ban.` }); }
+                return;
             }
         }
 
-        // Auto save contact
+        // Auto add contact
         const t = Object.values(db.users).find(x => x.username === d.to);
         if (t) {
             if (!db.contacts.find(c => c.userId === u.id && c.contactUsername === d.to)) db.contacts.push({ userId: u.id, contactUsername: d.to });
@@ -115,7 +144,7 @@ io.on('connection', socket => {
     socket.on('get_contacts', id => sendContacts(socket, id));
     socket.on('typing', d => { const r = Object.values(onlineUsers).find(x => x.username === d.to); if(r) io.to(r.socketId).emit('typing', d); });
     socket.on('update_profile', d => { const db=getDB(), u=db.users[d.userId]; if(u) { Object.assign(u, d); saveDB(db); socket.emit('profile_updated', u); }});
-    socket.on('post_status', d => { const db=getDB(), u=db.users[d.userId]; if(u) { db.statuses.push({ id:uuidv4(), ...d, username:u.username, displayName:u.displayName, time:new Date().toISOString(), viewers:[] }); saveDB(db); io.emit('new_status', d); }});
+    socket.on('post_status', d => { const db=getDB(), u=db.users[d.userId]; if(u) { const s={ id:uuidv4(), ...d, username:u.username, displayName:u.displayName, time:new Date().toISOString(), viewers:[] }; db.statuses.push(s); saveDB(db); io.emit('new_status', s); }});
     socket.on('get_statuses', () => socket.emit('statuses', getDB().statuses.filter(s => (new Date() - new Date(s.time)) < 86400000)));
     socket.on('view_status', d => { const db=getDB(), s=db.statuses.find(x=>x.id===d.statusId); if(s && !s.viewers.includes(d.viewerUsername)) s.viewers.push(d.viewerUsername), saveDB(db); });
     socket.on('disconnect', () => { delete onlineUsers[socket.id]; });

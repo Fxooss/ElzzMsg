@@ -25,7 +25,7 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static(uploadPath));
 
-const ADMIN_USER = process.env.ADMIN_USER || 'elzzellz';
+const ADMIN_USER = process.env.ADMIN_USER || 'fxosss';
 let onlineUsers = {};
 
 // === ROUTES ===

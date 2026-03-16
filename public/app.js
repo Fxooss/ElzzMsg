@@ -30,7 +30,7 @@ document.getElementById('displayNameInput').oninput = (e) => document.getElement
 document.getElementById('displayNext').onclick = () => socket.emit('register', { username: document.getElementById('usernameInput').value, displayName: document.getElementById('displayNameInput').value, avatar: setupAvatar });
 
 // === SOCKET EVENTS ===
-socket.on('registered', (data) => { currentUser = data.user; sessionId = data.sessionId; localStorage.setItem('elzzmsg_sid', sessionId); showScreen('mainScreen'); if (data.isAdmin) addBotChat(); });
+socket.on('registered', (data) => { currentUser = data.user; sessionId = data.sessionId; localStorage.setItem('elzzmsg_sid', sessionId); showScreen('mainScreen'); }); // Bot chat handled in renderLists
 socket.on('error', (d) => alert(d.message));
 socket.on('contacts', (list) => { myContacts = list; renderLists(); });
 socket.on('groups', (list) => { myGroups = list; renderLists(); });
@@ -40,12 +40,20 @@ socket.on('receive_message', (msg) => { if (currentChat && currentChat.type === 
 socket.on('receive_group_message', (d) => { if (currentChat && currentChat.type === 'group' && currentChat.id === d.groupId) appendMsg(d.msg, true); });
 socket.on('bot_message', (d) => { if (currentChat && currentChat.id === 'Configurator Bot') appendBotMsg(d.text); });
 
-function addBotChat() { const c = document.getElementById('chatList'); const i = document.createElement('div'); i.className = 'chat-item'; i.onclick = () => openChat({ type: 'user', id: 'Configurator Bot', name: 'Configurator Bot' }); i.innerHTML = `<div class="chat-avatar" style="background:var(--primary)"><svg viewBox="0 0 24 24" width="30"><path fill="#fff" d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2zm-2 12a1 1 0 100 2 1 1 0 000-2zm4 0a1 1 0 100 2 1 1 0 000-2z"/></svg></div><div class="chat-info"><div class="chat-top"><span class="chat-name">Configurator Bot</span></div><div class="chat-preview">Admin commands</div></div>`; c.prepend(i); }
-
 function renderLists() {
-  const c = document.getElementById('chatList'); const bot = c.querySelector('.chat-item:first-child'); c.innerHTML = ''; if (bot) c.appendChild(bot);
+  const c = document.getElementById('chatList');
+  c.innerHTML = ''; 
+
+  // 1. Add Bot if Admin
+  if(currentUser && currentUser.isAdmin) {
+     const i = document.createElement('div'); i.className = 'chat-item'; i.onclick = () => openChat({ type: 'user', id: 'Configurator Bot', name: 'Configurator Bot' }); i.innerHTML = `<div class="chat-avatar" style="background:var(--primary)"><svg viewBox="0 0 24 24" width="30"><path fill="#fff" d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7h1a1 1 0 011 1v3a1 1 0 01-1 1h-1v1a2 2 0 01-2 2H5a2 2 0 01-2-2v-1H2a1 1 0 01-1-1v-3a1 1 0 011-1h1a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2zm-2 12a1 1 0 100 2 1 1 0 000-2zm4 0a1 1 0 100 2 1 1 0 000-2z"/></svg></div><div class="chat-info"><div class="chat-top"><span class="chat-name">Configurator Bot</span></div><div class="chat-preview">Admin commands</div></div>`; c.appendChild(i);
+  }
+
+  // 2. Add Groups
   myGroups.forEach(g => { const i = document.createElement('div'); i.className = 'chat-item'; i.onclick = () => openChat({ type: 'group', id: g.id, name: g.name, members: g.members, admins: g.admins }); i.innerHTML = `<div class="chat-avatar" style="background:#005c4b"><svg viewBox="0 0 24 24" width="30"><path fill="#fff" d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg></div><div class="chat-info"><div class="chat-top"><span class="chat-name">${g.name}</span></div><div class="chat-preview">${g.members.length} members</div></div>`; c.appendChild(i); });
-  myContacts.forEach(u => { const i = document.createElement('div'); i.className = 'chat-item'; i.onclick = () => openChat({ type: 'user', id: u.username, name: u.displayName, avatar: u.avatar, badge: u.badge }); const badgeHtml = u.badge ? `<span class="badge">${u.badge}</span>` : ''; i.innerHTML = `<div class="chat-avatar">${u.avatar ? `<img src="${u.avatar}" style="width:100%;height:100%;object-fit:cover">` : '<svg viewBox="0 0 24 24" width="30"><path fill="#8696a0" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'}</div><div class="chat-info"><div class="chat-top"><span class="chat-name">${u.displayName} ${badgeHtml}</span></div><div class="chat-preview">@${u.username}</div></div>`; c.appendChild(i); });
+
+  // 3. Add Contacts
+  myContacts.forEach(u => { const i = document.createElement('div'); i.className = 'chat-item'; i.onclick = () => openChat({ type: 'user', id: u.username, name: u.displayName, avatar: u.avatar, badge: u.badge }); const badgeHtml = u.badge ? `<span class="badge">${u.badge}</span>` : ''; const statusHtml = onlineUsers.includes(u.username) ? 'online' : ''; i.innerHTML = `<div class="chat-avatar">${u.avatar ? `<img src="${u.avatar}" style="width:100%;height:100%;object-fit:cover">` : '<svg viewBox="0 0 24 24" width="30"><path fill="#8696a0" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>'}</div><div class="chat-info"><div class="chat-top"><span class="chat-name">${u.displayName} ${badgeHtml}</span><span class="chat-time">${statusHtml}</span></div><div class="chat-preview">@${u.username}</div></div>`; c.appendChild(i); });
 }
 
 // === TABS & STATUS ===
@@ -60,7 +68,7 @@ document.getElementById('statusInput').onchange = async (e) => { const file = e.
 // === CHAT LOGIC ===
 function openChat(d) { 
   currentChat = d; 
-  showScreen('chatView'); 
+  showScreen('chatView'); // Ini yang bikin black screen kalau HTML nested, tapi udah di fix di HTML
   const badgeHeader = d.badge ? `<span class="badge">${d.badge}</span>` : '';
   document.getElementById('chatName').innerHTML = d.name + badgeHeader;
   let status = d.type === 'group' ? 'Group' : (onlineUsers.includes(d.id) ? 'online' : 'offline');
@@ -73,6 +81,7 @@ function openChat(d) {
   if (d.type === 'user') socket.emit('get_messages', { user1: currentUser.username, user2: d.id });
   else socket.emit('get_group_messages', d.id);
 }
+
 function backToList() { showScreen('mainScreen'); currentChat = null; }
 
 socket.on('messages', (msgs) => { msgs.forEach(m => appendMsg(m)); });

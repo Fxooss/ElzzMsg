@@ -9,14 +9,18 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// === DATABASE ===
-const DB_FILE = 'elzzmsg_db.json';
+// === [CONFIG] ===
+// Ganti nama file ini buat RESET DATABASE total
+const DB_FILE = 'elzzmsg_fresh.json'; 
+// Ganti Username Admin di sini
+const ADMIN_USER = process.env.ADMIN_USER || 'fxosss'; 
+// ================
+
 function initDB() { if (!fs.existsSync(DB_FILE)) fs.writeFileSync(DB_FILE, JSON.stringify({ users: {}, sessions: {}, contacts: [], messages: [], banned: [], statuses: [] }, null, 2)); }
 function getDB() { if (!fs.existsSync(DB_FILE)) initDB(); try { return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8')); } catch (e) { initDB(); return getDB(); } }
 function saveDB(data) { fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2)); }
 initDB();
 
-// === UPLOADS ===
 const uploadPath = './uploads';
 if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath, { recursive: true });
 const upload = multer({ dest: uploadPath });
@@ -25,57 +29,48 @@ app.use(express.json());
 app.use(express.static('public'));
 app.use('/uploads', express.static(uploadPath));
 
-const ADMIN_USER = process.env.ADMIN_USER || 'fxosss';
 let onlineUsers = {};
 
-// === ROUTES ===
 app.get('/', (req, res) => res.sendFile(__dirname + '/public/index.html'));
 app.post('/upload', upload.single('file'), (req, res) => res.json({ url: '/uploads/' + req.file.filename, type: req.file.mimetype }));
 app.post('/upload-voice', upload.single('voice'), (req, res) => res.json({ url: '/uploads/' + req.file.filename }));
 app.post('/api/check-session', (req, res) => {
     const db = getDB();
     const session = db.sessions[req.body.sessionId];
-    // FIX: Kalau session gak ada, langsung balikin false. Jangan lanjut cek user.
     if (!session) return res.json({ valid: false }); 
     
     const user = db.users[session.userId];
     if (!user) return res.json({ valid: false });
 
-    // FIX: Cek ban HANYA kalau user ditemukan
     const banData = db.banned.find(b => b.username === user.username);
     if (banData) return res.json({ valid: false, banned: true, banData: { bannedBy: banData.bannedBy, reason: banData.reason } });
     
     res.json({ valid: true, user: { ...user, password: undefined } });
 });
 
-// === SOCKET ===
 io.on('connection', socket => {
     console.log('Connect:', socket.id);
 
     socket.on('register', d => {
         const db = getDB();
         
-        // 1. CEK SESSION LAMA
         if (d.sessionId && db.sessions[d.sessionId]) {
             const userId = db.sessions[d.sessionId].userId;
             const user = db.users[userId];
             
             if (user) {
-                // FIX: Cek ban HANYA kalau user ada
                 const banData = db.banned.find(b => b.username === user.username);
                 if (banData) {
                     return socket.emit('banned', { bannedBy: banData.bannedBy, reason: banData.reason });
                 }
-
                 onlineUsers[socket.id] = { ...user, socketId: socket.id, online: true };
                 socket.emit('registered', { success: true, user, isAdmin: user.isAdmin, sessionId: d.sessionId });
                 sendContacts(socket, user.id);
                 sendStatus(socket);
-                return; // STOP di sini kalau udah login
+                return;
             }
         }
 
-        // 2. REGISTRASI BARU
         if (!d.username || d.username.length < 3) return socket.emit('error', { message: 'Username minimal 3 karakter' });
         if (Object.values(db.users).find(u => u.username === d.username)) return socket.emit('error', { message: 'Username sudah digunakan' });
         
@@ -90,13 +85,13 @@ io.on('connection', socket => {
 
         onlineUsers[socket.id] = { ...user, socketId: socket.id, online: true };
         socket.emit('registered', { success: true, user, isAdmin, sessionId: sid });
-        if (isAdmin) socket.emit('bot_message', { text: '🤖 Admin Mode: /ban (user) (reason) | /unban (user)' });
+        if (isAdmin) socket.emit('bot_message', { text: '🤖 Admin Mode Aktif.\nCommands:\n/ban (user) (alasan)\n/unban (user)' });
     });
 
     socket.on('add_contact', d => {
         const db = getDB(); const u = db.users[d.userId]; if(!u) return;
         const t = Object.values(db.users).find(x => x.username === d.targetUsername);
-        if (!t) return socket.emit('error', { message: 'Username tidak ditemukan' });
+        if (!t) return socket.emit('error', { message: 'User tidak ditemukan' });
         if (!db.contacts.find(c => c.userId === d.userId && c.contactUsername === d.targetUsername)) db.contacts.push({ userId: d.userId, contactUsername: d.targetUsername }), saveDB(db);
         sendContacts(socket, d.userId); socket.emit('contact_added', { ok: true });
     });
@@ -108,7 +103,6 @@ io.on('connection', socket => {
             const [cmd, arg, ...r] = d.text.split(' ');
             if (cmd === '/ban' && arg) {
                 const reason = r.join(' ') || 'No reason';
-                // Remove existing ban first
                 db.banned = db.banned.filter(x => x.username !== arg);
                 db.banned.push({ username: arg, reason: reason, bannedBy: u.username }); 
                 saveDB(db);
@@ -125,7 +119,6 @@ io.on('connection', socket => {
             }
         }
 
-        // Auto add contact
         const t = Object.values(db.users).find(x => x.username === d.to);
         if (t) {
             if (!db.contacts.find(c => c.userId === u.id && c.contactUsername === d.to)) db.contacts.push({ userId: u.id, contactUsername: d.to });
@@ -153,7 +146,6 @@ io.on('connection', socket => {
     function sendStatus(s) { s.emit('statuses', getDB().statuses.filter(x => (new Date() - new Date(x.time)) < 86400000)); }
 });
 
-// GCC
 setInterval(() => { const db=getDB(), n=new Date(); db.messages=db.messages.filter(m=>(n-new Date(m.time))<86400000); db.statuses=db.statuses.filter(s=>(n-new Date(s.time))<86400000); saveDB(db); }, 3600000);
 
 const PORT = process.env.PORT || 3000;

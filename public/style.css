@@ -487,6 +487,28 @@ body { font-family: 'Segoe UI', sans-serif; background: var(--bg-dark); color: v
 .chat-user-details span { color: rgba(255,255,255,0.7); font-size: 12px; }
 
 /* Messages */
+/* ... (Css sebelumnya tetap sama, tambahkan ini di bawah) ... */
+/* PASTE CSS LAMA LU, LALU TAMBAHKAN KODE INI DI PALING BAWAH: */
+
+.badge {
+    font-size: 10px;
+    background: var(--primary);
+    color: #000;
+    padding: 2px 5px;
+    border-radius: 4px;
+    margin-left: 5px;
+    vertical-align: middle;
+    font-weight: bold;
+}
+
+.fab-container { position: fixed; bottom: 25px; right: 25px; }
+.fab-menu { display: none; flex-direction: column; margin-bottom: 10px; background: var(--bg-header); border-radius: 10px; overflow: hidden; }
+.fab-menu.active { display: flex; }
+.fab-option { padding: 12px 15px; font-size: 14px; color: #fff; cursor: pointer; border-bottom: 1px solid var(--border); }
+.fab-option:last-child { border-bottom: none; }
+.fab-option:active { background: var(--primary); color: #000; }
+
+.tag-highlight { color: var(--primary); font-weight: bold; cursor: pointer; }
 .messages-container { padding: 70px 10px 60px; height: 100%; overflow-y: auto; background: var(--bg-darker); background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23182b33' fill-opacity='0.2'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E"); }
 .encryption-notice { background: rgba(0,0,0,0.3); padding: 6px 12px; border-radius: 6px; font-size: 12px; color: var(--text-sec); text-align: center; margin: 10px auto; width: fit-content; }
 .message { display: flex; margin-bottom: 2px; }
